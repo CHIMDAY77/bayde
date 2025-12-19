@@ -120,100 +120,33 @@ local function maybeDelay()
     end
 end
 
---// ================= GUI (BASIC / MOBILE SAFE) =================
--- Minimal menu to avoid ALL mobile UI bugs
+--// ================= GUI (ICON ONLY / NO MENU) =================
+-- All features ENABLED by default. No menu to avoid mobile UI bugs.
+
+-- Force-enable features
+cfg.ESP = true
+cfg.AIM = true
+cfg.FOV_VISIBLE = true
+
+-- Small status icon (touch-safe, does nothing except indicate running)
 local gui = Instance.new("ScreenGui")
-gui.Name = "BasicMenu"
+gui.Name = "RunIcon"
 gui.ResetOnSpawn = false
 gui.Parent = LP:WaitForChild("PlayerGui")
 
--- Main frame (small, fixed size)
-local frame = Instance.new("Frame", gui)
-frame.Size = UDim2.fromOffset(220, 180)
-frame.Position = UDim2.fromOffset(20, 120)
-frame.BackgroundColor3 = Color3.fromRGB(25,25,35)
-frame.Visible = true
-frame.Active = true
-frame.Draggable = true
-frame.ZIndex = 10
+local icon = Instance.new("TextButton", gui)
+icon.Size = UDim2.fromOffset(44, 44)
+icon.Position = UDim2.fromOffset(16, 90)
+icon.Text = "ON"
+icon.Font = Enum.Font.GothamBold
+icon.TextSize = 12
+icon.TextColor3 = Color3.new(1,1,1)
+icon.BackgroundColor3 = Color3.fromRGB(35, 140, 85)
+icon.ZIndex = 10
 
--- Title
-local title = Instance.new("TextLabel", frame)
-title.Size = UDim2.new(1, -40, 0, 30)
-title.Position = UDim2.fromOffset(10, 5)
-title.Text = "MENU"
-title.Font = Enum.Font.GothamBold
-title.TextSize = 14
-title.TextColor3 = Color3.new(1,1,1)
-title.BackgroundTransparency = 1
-title.ZIndex = 11
-
-title.TextXAlignment = Left
-
--- Close button
-local close = Instance.new("TextButton", frame)
-close.Size = UDim2.fromOffset(30, 24)
-close.Position = UDim2.fromOffset(180, 6)
-close.Text = "X"
-close.Font = Enum.Font.GothamBold
-close.TextSize = 14
-close.BackgroundColor3 = Color3.fromRGB(60,60,80)
-close.TextColor3 = Color3.new(1,1,1)
-close.ZIndex = 11
-
--- Button helper (NO effects, touch safe)
-local function makeBtn(text, y)
-    local b = Instance.new("TextButton", frame)
-    b.Size = UDim2.fromOffset(200, 32)
-    b.Position = UDim2.fromOffset(10, y)
-    b.Text = text
-    b.Font = Enum.Font.Gotham
-    b.TextSize = 13
-    b.TextColor3 = Color3.new(1,1,1)
-    b.BackgroundColor3 = Color3.fromRGB(40,40,60)
-    b.ZIndex = 11
-    return b
-end
-
--- Buttons
-local espBtn = makeBtn("ESP : ON", 44)
-local aimBtn = makeBtn("AIM : ON", 80)
-local fovBtn = makeBtn("FOV : ON", 116)
-
--- Toggle logic (Activated ONLY)
-espBtn.Activated:Connect(function()
-    cfg.ESP = not cfg.ESP
-    espBtn.Text = cfg.ESP and "ESP : ON" or "ESP : OFF"
-end)
-
-aimBtn.Activated:Connect(function()
-    cfg.AIM = not cfg.AIM
-    aimBtn.Text = cfg.AIM and "AIM : ON" or "AIM : OFF"
-end)
-
-fovBtn.Activated:Connect(function()
-    cfg.FOV_VISIBLE = not cfg.FOV_VISIBLE
-    fovBtn.Text = cfg.FOV_VISIBLE and "FOV : ON" or "FOV : OFF"
-end)
-
--- Close menu
-close.Activated:Connect(function()
-    frame.Visible = false
-end)
-
--- Mini open button (ALWAYS AVAILABLE)
-local mini = Instance.new("TextButton", gui)
-mini.Size = UDim2.fromOffset(56, 28)
-mini.Position = UDim2.fromOffset(20, 80)
-mini.Text = "MENU"
-mini.Font = Enum.Font.GothamBold
-mini.TextSize = 12
-mini.TextColor3 = Color3.new(1,1,1)
-mini.BackgroundColor3 = Color3.fromRGB(35,35,50)
-mini.ZIndex = 20
-
-mini.Activated:Connect(function()
-    frame.Visible = true
+-- Optional: tap to re-center icon (harmless)
+icon.Activated:Connect(function()
+    icon.Position = UDim2.fromOffset(16, 90)
 end)
 
 --// ================= FOV =================
