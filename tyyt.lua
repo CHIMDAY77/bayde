@@ -159,57 +159,69 @@ st.Thickness = 2
 st.Color = Color3.fromRGB(255,120,120)
 Instance.new("UICorner", fov).CornerRadius = UDim.new(1,0)
 
---// ================= ESP =================
-local esp = {}
-local function addESP(plr)
-    if plr == LP then return end
+--// ================= ESP (MOBILE OPTIMIZED: Accurate Aura Box) =================
+local espBoxes = {}
+
+local function attachBox(plr)
+    if plr==LP or not isEnemy(plr) then return end
     local char = plr.Character; if not char then return end
-    local r = char:FindFirstChild("HumanoidRootPart"); if not r then return end
-    if esp[plr] then return end
-    local bill = Instance.new("BillboardGui", gui)
-    bill.Adornee = r; bill.Size = UDim2.new(0,120,0,30); bill.AlwaysOnTop = true
-    local txt = Instance.new("TextLabel", bill)
-    txt.Size = UDim2.new(1,0,1,0); txt.BackgroundTransparency = 1
-    txt.Font = Enum.Font.GothamBold; txt.TextSize = 14; txt.Text = plr.Name
-    local box
-    if cfg.BOX then
-        box = Instance.new("BoxHandleAdornment", gui)
-        box.Adornee = char; box.AlwaysOnTop = true; box.Size = Vector3.new(4,6,2); box.Transparency = 0.75
-    end
-    esp[plr] = {bill=bill, label=txt, box=box}
+    local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+    if espBoxes[plr] then return end
+    local box = Instance.new("SelectionBox")
+    box.Adornee = char -- SelectionBox auto-follows model accurately
+    box.LineThickness = 0.025
+    box.Color3 = Color3.fromRGB(255,80,80)
+    box.Transparency = 0.25
+    box.Parent = char
+    espBoxes[plr] = box
 end
 
-local function updateESP()
-    for plr,d in pairs(esp) do
-        if not plr.Character or not d.bill.Adornee then
-            d.bill.Enabled = false
-        else
-            local enemy = isEnemy(plr)
-            d.bill.Enabled = cfg.ESP and enemy
-            d.label.TextTransparency = enemy and 0 or 0.7
-            d.label.TextColor3 = enemy and Color3.fromRGB(255,80,80) or Color3.fromRGB(120,120,120)
-            if d.box then d.box.Visible = cfg.ESP and cfg.BOX and enemy end
+local function refreshESP()
+    for _,p in ipairs(Players:GetPlayers()) do
+        if cfg.ESP then attachBox(p) end
+    end
+    for p,box in pairs(espBoxes) do
+        if not p.Character or not isEnemy(p) then
+            if box then box:Destroy() end
+            espBoxes[p] = nil
         end
     end
 end
 
---// ================= AIM =================
-local shooting = false
-UserInputService.InputBegan:Connect(function(i) if i.UserInputType==cfg.FIRE_BUTTON then shooting=true end end)
-UserInputService.InputEnded:Connect(function(i) if i.UserInputType==cfg.FIRE_BUTTON then shooting=false end end)
+-- Low-frequency refresh for mobile (accurate without lag)
+task.spawn(function()
+    while task.wait(0.2) do
+        refreshESP()
+    end
+end)
 
-local function pickTarget()
-    local best, bestScore, bestDist = nil, math.huge, math.huge
+-- Ensure re-attach on respawn
+Players.PlayerAdded:Connect(function(p)
+    p.CharacterAdded:Connect(function()
+        task.wait(0.2)
+        if cfg.ESP then attachBox(p) end
+    end)
+end)
+
+--// ================= AIM (LOCK-ON ON FIRE PRESS) =================
+local shooting = false
+local lockedPlr = nil
+local lockedPart = nil
+
+local function acquireTargetImmediate()
+    local bestScore = math.huge
     local mouse = UserInputService:GetMouseLocation()
-    for _,plr in pairs(Players:GetPlayers()) do
+    local bestPlr, bestPart = nil, nil
+    for _,plr in ipairs(Players:GetPlayers()) do
         if plr~=LP and isEnemy(plr) and plr.Character then
             local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            local r = plr.Character:FindFirstChild("HumanoidRootPart")
-            if hum and r and hum.Health>0 then
-                local dist = distFromMe(r.Position)
-                local part = r
-                if dist<=cfg.HEADSHOT_MID then
-                    local h = plr.Character:FindFirstChild(cfg.HEAD_PART); if h then part=h end
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            if hum and hrp and hum.Health>0 then
+                local dist = distFromMe(hrp.Position)
+                local part = hrp
+                if dist <= cfg.HEADSHOT_MID then
+                    local h = plr.Character:FindFirstChild(cfg.HEAD_PART)
+                    if h then part = h end
                 end
                 local pos,on = Camera:WorldToViewportPoint(part.Position)
                 if on then
@@ -217,51 +229,43 @@ local function pickTarget()
                     local d2 = (Vector2.new(pos.X,pos.Y)-mouse).Magnitude
                     if d2 < fovDyn then
                         local score = d2 + dist*0.25
-                        if score<bestScore then bestScore, best, bestDist = score, part, dist end
+                        if score < bestScore then
+                            bestScore = score
+                            bestPlr, bestPart = plr, part
+                        end
                     end
                 end
             end
         end
     end
-    return best, bestDist
+    lockedPlr, lockedPart = bestPlr, bestPart
 end
 
---// ================= ADMIN PROTECT =================
-local function isAdmin(plr)
-    local n = plr.Name:lower(); for _,k in pairs(cfg.ADMIN_KEYWORDS) do if n:find(k) then return true end end
-end
-local function panic(reason)
-    status.Text = "Status: PANIC ("..reason..")"; status.TextColor3 = Color3.fromRGB(255,80,80)
-    cfg.AIM=false; cfg.ESP=false
-    if cfg.AUTO_DISABLE_ON_ADMIN then task.wait(1.2); pcall(function() TeleportService:Teleport(game.PlaceId, LP) end) end
-end
-for _,p in pairs(Players:GetPlayers()) do if isAdmin(p) then panic("ADMIN") end end
-Players.PlayerAdded:Connect(function(p) if isAdmin(p) then panic("ADMIN JOIN") end end)
-
---// ================= LOOP =================
-RunService.RenderStepped:Connect(function()
-    local m = UserInputService:GetMouseLocation()
-    fov.Position = UDim2.fromOffset(m.X, m.Y)
-    fov.Visible = cfg.FOV_VISIBLE
-
-    updateESP()
-
-    if cfg.AIM and (not cfg.SHOOT_ONLY or shooting) then
-        local tgt, dist = pickTarget()
-        if tgt and not shouldMiss() then
-            maybeDelay()
-            local fovDyn, smooth = dynParams(dist)
-            fov.Size = UDim2.new(0,fovDyn*2,0,fovDyn*2)
-            local camPos = Camera.CFrame.Position
-            local vel = tgt.AssemblyLinearVelocity
-            local aimPos = tgt.Position + (vel * cfg.PREDICT_FACTOR)
-            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(camPos, aimPos), smooth)
-        end
+-- Press-to-lock (instant)
+UserInputService.InputBegan:Connect(function(i)
+    if i.UserInputType == cfg.FIRE_BUTTON then
+        shooting = true
+        acquireTargetImmediate() -- lock as soon as button is pressed
     end
 end)
 
---// ================= PLAYERS =================
-for _,p in pairs(Players:GetPlayers()) do if p.Character then addESP(p) end; p.CharacterAdded:Connect(function() task.wait(0.3); addESP(p) end) end
-Players.PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(function() task.wait(0.3); addESP(p) end) end)
+UserInputService.InputEnded:Connect(function(i)
+    if i.UserInputType == cfg.FIRE_BUTTON then
+        shooting = false
+        lockedPlr, lockedPart = nil, nil
+    end
+end)
 
-print("✅ Combat Arena LEGIT++ Loaded")
+-- Camera update only (very light)
+RunService.RenderStepped:Connect(function()
+    if cfg.AIM and shooting and lockedPlr and lockedPart and lockedPart.Parent then
+        local dist = distFromMe(lockedPart.Position)
+        local _, smooth = dynParams(dist)
+        local camPos = Camera.CFrame.Position
+        local vel = lockedPart.AssemblyLinearVelocity
+        local aimPos = lockedPart.Position + (vel * cfg.PREDICT_FACTOR)
+        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(camPos, aimPos), smooth)
+    end
+end)
+
+print("✅ Combat Arena LEGIT++ Loaded (Mobile Optimized)")
