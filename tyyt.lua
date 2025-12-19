@@ -1,0 +1,334 @@
+--[[
+ Combat Arena – ALL‑IN LEGIT++ (Mobile Safe)
+ ✔ Adaptive Performance (FPS aware)
+ ✔ Dynamic FOV + Dynamic Smooth
+ ✔ Light Prediction (no raycast)
+ ✔ Legit Randomization (hit rate ~92–95%)
+ ✔ Aim only when SHOOTING
+ ✔ Enemy‑only aim / teammate ESP faded
+ ✔ Auto Headshot (close & mid)
+ ✔ Auto‑disable + Hop on Admin
+ Works on: Delta / KRNL / Fluxus
+]]
+
+--// SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
+local Camera = workspace.CurrentCamera
+
+local LP = Players.LocalPlayer
+
+--// ================= CONFIG =================
+local cfg = {
+    ESP = true,
+    BOX = true,
+    AIM = true,
+    TEAM_CHECK = true,
+
+    -- Aim trigger
+    SHOOT_ONLY = true,
+    FIRE_BUTTON = Enum.UserInputType.MouseButton1,
+
+    -- Base FOV (dynamic overrides below)
+    FOV_BASE = 200,
+    FOV_VISIBLE = true,
+
+    -- Smooth range (dynamic)
+    SMOOTH_MIN = 0.14,
+    SMOOTH_MAX = 0.24,
+
+    -- Head logic
+    HEADSHOT_CLOSE = 85,
+    HEADSHOT_MID   = 180,
+
+    DEFAULT_PART = "HumanoidRootPart",
+    HEAD_PART    = "Head",
+
+    -- Prediction
+    PREDICT_FACTOR = 0.12,   -- light, legit
+
+    -- Legit randomization (keep hit rate > 90%)
+    MISS_CHANCE = 0.08,      -- 8% intentional soft miss
+    DELAY_CHANCE = 0.10,     -- 10% micro delay
+    DELAY_MIN = 0.015,
+    DELAY_MAX = 0.045,
+
+    -- Adaptive perf
+    FPS_LOW = 40,
+    FPS_MED = 55,
+
+    -- Admin protection
+    AUTO_DISABLE_ON_ADMIN = true,
+    ADMIN_KEYWORDS = {"admin","mod","staff","dev"},
+}
+
+--// ================= UTILS =================
+local function isEnemy(plr)
+    if not cfg.TEAM_CHECK then return true end
+    if not LP.Team or not plr.Team then return true end
+    return plr.Team ~= LP.Team
+end
+
+local function hrp()
+    return LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+end
+
+local function distFromMe(pos)
+    local r = hrp()
+    if not r then return math.huge end
+    return (r.Position - pos).Magnitude
+end
+
+-- FPS estimator
+local fps, frames, last = 60, 0, tick()
+RunService.RenderStepped:Connect(function()
+    frames += 1
+    if tick() - last >= 1 then
+        fps = frames / (tick() - last)
+        frames = 0
+        last = tick()
+    end
+end)
+
+-- Dynamic smooth & FOV
+local function dynParams(distance)
+    local fov = cfg.FOV_BASE
+    local smooth
+    if distance < 80 then
+        fov = 160; smooth = 0.14
+    elseif distance < 180 then
+        fov = 200; smooth = 0.18
+    else
+        fov = 260; smooth = 0.24
+    end
+    -- Adaptive perf
+    if fps < cfg.FPS_LOW then
+        fov -= 30; smooth += 0.04; cfg.BOX = false
+    elseif fps < cfg.FPS_MED then
+        smooth += 0.02
+    end
+    return math.max(120,fov), math.clamp(smooth, cfg.SMOOTH_MIN, cfg.SMOOTH_MAX)
+end
+
+-- Legit randomization helpers
+local function shouldMiss() return math.random() < cfg.MISS_CHANCE end
+local function maybeDelay()
+    if math.random() < cfg.DELAY_CHANCE then
+        task.wait(math.random()*(cfg.DELAY_MAX-cfg.DELAY_MIN)+cfg.DELAY_MIN)
+    end
+end
+
+--// ================= GUI (BASIC / MOBILE SAFE) =================
+-- Minimal menu to avoid ALL mobile UI bugs
+local gui = Instance.new("ScreenGui")
+gui.Name = "BasicMenu"
+gui.ResetOnSpawn = false
+gui.Parent = LP:WaitForChild("PlayerGui")
+
+-- Main frame (small, fixed size)
+local frame = Instance.new("Frame", gui)
+frame.Size = UDim2.fromOffset(220, 180)
+frame.Position = UDim2.fromOffset(20, 120)
+frame.BackgroundColor3 = Color3.fromRGB(25,25,35)
+frame.Visible = true
+frame.Active = true
+frame.Draggable = true
+frame.ZIndex = 10
+
+-- Title
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.new(1, -40, 0, 30)
+title.Position = UDim2.fromOffset(10, 5)
+title.Text = "MENU"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextColor3 = Color3.new(1,1,1)
+title.BackgroundTransparency = 1
+title.ZIndex = 11
+
+title.TextXAlignment = Left
+
+-- Close button
+local close = Instance.new("TextButton", frame)
+close.Size = UDim2.fromOffset(30, 24)
+close.Position = UDim2.fromOffset(180, 6)
+close.Text = "X"
+close.Font = Enum.Font.GothamBold
+close.TextSize = 14
+close.BackgroundColor3 = Color3.fromRGB(60,60,80)
+close.TextColor3 = Color3.new(1,1,1)
+close.ZIndex = 11
+
+-- Button helper (NO effects, touch safe)
+local function makeBtn(text, y)
+    local b = Instance.new("TextButton", frame)
+    b.Size = UDim2.fromOffset(200, 32)
+    b.Position = UDim2.fromOffset(10, y)
+    b.Text = text
+    b.Font = Enum.Font.Gotham
+    b.TextSize = 13
+    b.TextColor3 = Color3.new(1,1,1)
+    b.BackgroundColor3 = Color3.fromRGB(40,40,60)
+    b.ZIndex = 11
+    return b
+end
+
+-- Buttons
+local espBtn = makeBtn("ESP : ON", 44)
+local aimBtn = makeBtn("AIM : ON", 80)
+local fovBtn = makeBtn("FOV : ON", 116)
+
+-- Toggle logic (Activated ONLY)
+espBtn.Activated:Connect(function()
+    cfg.ESP = not cfg.ESP
+    espBtn.Text = cfg.ESP and "ESP : ON" or "ESP : OFF"
+end)
+
+aimBtn.Activated:Connect(function()
+    cfg.AIM = not cfg.AIM
+    aimBtn.Text = cfg.AIM and "AIM : ON" or "AIM : OFF"
+end)
+
+fovBtn.Activated:Connect(function()
+    cfg.FOV_VISIBLE = not cfg.FOV_VISIBLE
+    fovBtn.Text = cfg.FOV_VISIBLE and "FOV : ON" or "FOV : OFF"
+end)
+
+-- Close menu
+close.Activated:Connect(function()
+    frame.Visible = false
+end)
+
+-- Mini open button (ALWAYS AVAILABLE)
+local mini = Instance.new("TextButton", gui)
+mini.Size = UDim2.fromOffset(56, 28)
+mini.Position = UDim2.fromOffset(20, 80)
+mini.Text = "MENU"
+mini.Font = Enum.Font.GothamBold
+mini.TextSize = 12
+mini.TextColor3 = Color3.new(1,1,1)
+mini.BackgroundColor3 = Color3.fromRGB(35,35,50)
+mini.ZIndex = 20
+
+mini.Activated:Connect(function()
+    frame.Visible = true
+end)
+
+--// ================= FOV =================
+local fov = Instance.new("Frame", gui)
+fov.AnchorPoint = Vector2.new(0.5,0.5)
+fov.BackgroundTransparency = 1
+fov.BorderSizePixel = 0
+local st = Instance.new("UIStroke", fov)
+st.Thickness = 2
+st.Color = Color3.fromRGB(255,120,120)
+Instance.new("UICorner", fov).CornerRadius = UDim.new(1,0)
+
+--// ================= ESP =================
+local esp = {}
+local function addESP(plr)
+    if plr == LP then return end
+    local char = plr.Character; if not char then return end
+    local r = char:FindFirstChild("HumanoidRootPart"); if not r then return end
+    if esp[plr] then return end
+    local bill = Instance.new("BillboardGui", gui)
+    bill.Adornee = r; bill.Size = UDim2.new(0,120,0,30); bill.AlwaysOnTop = true
+    local txt = Instance.new("TextLabel", bill)
+    txt.Size = UDim2.new(1,0,1,0); txt.BackgroundTransparency = 1
+    txt.Font = Enum.Font.GothamBold; txt.TextSize = 14; txt.Text = plr.Name
+    local box
+    if cfg.BOX then
+        box = Instance.new("BoxHandleAdornment", gui)
+        box.Adornee = char; box.AlwaysOnTop = true; box.Size = Vector3.new(4,6,2); box.Transparency = 0.75
+    end
+    esp[plr] = {bill=bill, label=txt, box=box}
+end
+
+local function updateESP()
+    for plr,d in pairs(esp) do
+        if not plr.Character or not d.bill.Adornee then
+            d.bill.Enabled = false
+        else
+            local enemy = isEnemy(plr)
+            d.bill.Enabled = cfg.ESP and enemy
+            d.label.TextTransparency = enemy and 0 or 0.7
+            d.label.TextColor3 = enemy and Color3.fromRGB(255,80,80) or Color3.fromRGB(120,120,120)
+            if d.box then d.box.Visible = cfg.ESP and cfg.BOX and enemy end
+        end
+    end
+end
+
+--// ================= AIM =================
+local shooting = false
+UserInputService.InputBegan:Connect(function(i) if i.UserInputType==cfg.FIRE_BUTTON then shooting=true end end)
+UserInputService.InputEnded:Connect(function(i) if i.UserInputType==cfg.FIRE_BUTTON then shooting=false end end)
+
+local function pickTarget()
+    local best, bestScore, bestDist = nil, math.huge, math.huge
+    local mouse = UserInputService:GetMouseLocation()
+    for _,plr in pairs(Players:GetPlayers()) do
+        if plr~=LP and isEnemy(plr) and plr.Character then
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            local r = plr.Character:FindFirstChild("HumanoidRootPart")
+            if hum and r and hum.Health>0 then
+                local dist = distFromMe(r.Position)
+                local part = r
+                if dist<=cfg.HEADSHOT_MID then
+                    local h = plr.Character:FindFirstChild(cfg.HEAD_PART); if h then part=h end
+                end
+                local pos,on = Camera:WorldToViewportPoint(part.Position)
+                if on then
+                    local fovDyn,_ = dynParams(dist)
+                    local d2 = (Vector2.new(pos.X,pos.Y)-mouse).Magnitude
+                    if d2 < fovDyn then
+                        local score = d2 + dist*0.25
+                        if score<bestScore then bestScore, best, bestDist = score, part, dist end
+                    end
+                end
+            end
+        end
+    end
+    return best, bestDist
+end
+
+--// ================= ADMIN PROTECT =================
+local function isAdmin(plr)
+    local n = plr.Name:lower(); for _,k in pairs(cfg.ADMIN_KEYWORDS) do if n:find(k) then return true end end
+end
+local function panic(reason)
+    status.Text = "Status: PANIC ("..reason..")"; status.TextColor3 = Color3.fromRGB(255,80,80)
+    cfg.AIM=false; cfg.ESP=false
+    if cfg.AUTO_DISABLE_ON_ADMIN then task.wait(1.2); pcall(function() TeleportService:Teleport(game.PlaceId, LP) end) end
+end
+for _,p in pairs(Players:GetPlayers()) do if isAdmin(p) then panic("ADMIN") end end
+Players.PlayerAdded:Connect(function(p) if isAdmin(p) then panic("ADMIN JOIN") end end)
+
+--// ================= LOOP =================
+RunService.RenderStepped:Connect(function()
+    local m = UserInputService:GetMouseLocation()
+    fov.Position = UDim2.fromOffset(m.X, m.Y)
+    fov.Visible = cfg.FOV_VISIBLE
+
+    updateESP()
+
+    if cfg.AIM and (not cfg.SHOOT_ONLY or shooting) then
+        local tgt, dist = pickTarget()
+        if tgt and not shouldMiss() then
+            maybeDelay()
+            local fovDyn, smooth = dynParams(dist)
+            fov.Size = UDim2.new(0,fovDyn*2,0,fovDyn*2)
+            local camPos = Camera.CFrame.Position
+            local vel = tgt.AssemblyLinearVelocity
+            local aimPos = tgt.Position + (vel * cfg.PREDICT_FACTOR)
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(camPos, aimPos), smooth)
+        end
+    end
+end)
+
+--// ================= PLAYERS =================
+for _,p in pairs(Players:GetPlayers()) do if p.Character then addESP(p) end; p.CharacterAdded:Connect(function() task.wait(0.3); addESP(p) end) end
+Players.PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(function() task.wait(0.3); addESP(p) end) end)
+
+print("✅ Combat Arena LEGIT++ Loaded")
